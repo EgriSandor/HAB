@@ -1,0 +1,160 @@
+select rendszam
+from szerelo.sz_auto au inner join szerelo.sz_auto_tulajdonosa at
+on au.azon=at.auto_azon
+inner join szerelo.sz_tulajdonos tu
+on tu.azon=at.tulaj_azon
+where szin='piros';
+
+A legutolsó autófelértékeléshez tartozó rendszám
+;
+select rendszam
+from szerelo.sz_autofelertekeles af inner join szerelo.sz_auto au
+on au.azon=af.auto_azon
+where datum=( select max(datum) from szerelo.sz_autofelertekeles);
+
+Az egyes szerelõmûhelyekhez hány szerelés tartozik?
+;
+select szm.azon, count(sz.auto_azon), szm.nev
+from szerelo.sz_szerelomuhely szm left outer join
+szerelo.sz_szereles sz
+on szm.azon=sz.muhely_azon 
+group by szm.azon, szm.nev;
+
+
+Melyik szerelomuhelyben végezték a legtöbb szerelést?;
+select szm.azon, count(sz.auto_azon), szm.nev
+from szerelo.sz_szerelomuhely szm left outer join
+szerelo.sz_szereles sz
+on szm.azon=sz.muhely_azon 
+group by szm.azon, szm.nev
+having count(sz.auto_azon)=(select max(count(sz.auto_azon))
+                           from szerelo.sz_szerelomuhely szm left outer join
+                                szerelo.sz_szereles sz
+                             on szm.azon=sz.muhely_azon 
+                           group by szm.azon, szm.nev);
+
+
+
+Melyik szerelõmûhelyben végezték a legkevesebb szerelést?
+select szm.azon, count(sz.auto_azon), szm.nev
+from szerelo.sz_szerelomuhely szm left outer join
+szerelo.sz_szereles sz
+on szm.azon=sz.muhely_azon 
+group by szm.azon, szm.nev
+having count(sz.auto_azon)=(select min(count(sz.auto_azon))
+                           from szerelo.sz_szerelomuhely szm left outer join
+                                szerelo.sz_szereles sz
+                             on szm.azon=sz.muhely_azon 
+                           group by szm.azon, szm.nev);
+
+with
+seged as (select szm.azon, count(sz.auto_azon) db, szm.nev
+          from szerelo.sz_szerelomuhely szm left outer join
+               szerelo.sz_szereles sz
+            on szm.azon=sz.muhely_azon 
+            group by szm.azon, szm.nev) 
+select *
+from seged
+where db=(select max(db) from seged);
+
+
+
+Töröljük azon autofelertekeléseket, amelyek esetén az érték több, 
+mint az autó elsõ vásárlási ára.
+;
+create table felertekel as
+select * from szerelo.sz_autofelertekeles;
+;
+delete
+--select *
+from felertekel f
+where ertek>(select elso_vasarlasi_ar
+             from szerelo.sz_auto au
+             where f.auto_azon=au.azon);
+
+
+Töröljük azon tulajdonosokat, akiknek nincs autójuk.
+;
+create table tulaj as 
+select * from szerelo.sz_tulajdonos;
+select *
+--delete
+from tulaj
+where azon not in (select tulaj_azon
+                  from szerelo.sz_auto_tulajdonosa)
+;
+
+Módosítsuk azon szerelések árát, amelyeket a leghosszabb nevû szerelomuhelyekben végeztek.
+Az új ár legyen az autó elso_vasarlasi_aranak a 10-ed része.
+;
+create table szereles as 
+select *
+from szerelo.sz_szereles;
+
+update szereles sz
+set munkavegzes_ara = (select elso_vasarlasi_ar/10
+                       from szerelo.sz_auto au
+                       where sz.auto_azon=au.azon)
+where muhely_azon= (select azon
+                    from szerelo.sz_szerelomuhely
+                    where length(nev)=(select max(length(nev)) 
+                                       from szerelo.sz_szerelomuhely));
+
+Módosítsuk azon auto_tulajdonlások vásárlási idejét, 
+amelyek esetén a megvásárolt autót 3-nál többször szerelték. 
+Az új vásárlási idõ legyen az utolsó befejezett munkavégzés vége;
+
+create table atu 
+as select *
+from szerelo.sz_auto_tulajdonosa;
+
+update atu
+set vasarlas_ideje=(select max(szereles_vege)
+                     from szerelo.sz_szereles sz
+                     where atu.auto_azon=sz.auto_azon)
+where auto_azon in (select auto_azon
+                    from szerelo.sz_szereles
+                    group by auto_azon
+                    having count(szereles_kezdete)>3);
+
+
+
+
+Hozzunk létre táblát biztosítás néven, auto_azon (külsõ kulcs),
+osszeg (nem null), típus, azonosító (pk), az összeg legyen nagyobb, mint 1000, 
+az auto_azon és a tipus együtt egyedi.
+create table s_auto as select * from szerelo.sz_auto;
+alter table s_auto add constraint sa_pk primary key (azon);
+;
+create table biztositas
+(auto_azon number(5),
+tipus varchar2(30),
+azon number(5),
+osszeg number(5) not null,
+constraint b_pk primary key (azon),
+constraint b_uq unique (auto_azon, tipus),
+constraint b_ch check (osszeg>1000),
+constraint b_fk foreign key (auto_azon) references s_auto);
+
+Vegyünk fel az elõzõ táblába egy tetszõleges sort.
+INSERT INTO biztositas (    auto_azon,    tipus,    azon,    osszeg) 
+VALUES (     103,    'bizt',    100,    2000);
+commit;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
